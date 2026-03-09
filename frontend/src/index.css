@@ -1,0 +1,63 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+	--bg-1: #f7f8f4;
+	--bg-2: #f1f3ea;
+	--ink: #1e251f;
+	--muted: #596458;
+	--panel: rgba(255, 255, 255, 0.82);
+	--line: rgba(31, 47, 35, 0.12);
+	--brand: #1f7a56;
+	--brand-soft: #d8f1e6;
+	--user-bubble: #10261a;
+	--assistant-bubble: #ffffff;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	color: var(--ink);
+	font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+	background:
+		radial-gradient(1100px 700px at 100% -20%, #d6eadf 0%, transparent 60%),
+		radial-gradient(900px 600px at -10% 100%, #e5ead4 0%, transparent 55%),
+		linear-gradient(145deg, var(--bg-1), var(--bg-2));
+	background-attachment: fixed;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+.glass-panel {
+	background: var(--panel);
+	border: 1px solid var(--line);
+	box-shadow: 0 14px 40px rgba(20, 28, 21, 0.08);
+	backdrop-filter: blur(12px);
+}
+
+.section-title {
+	letter-spacing: -0.015em;
+}
+
+.fade-up {
+	animation: fadeUp 400ms ease-out both;
+}
+
+@keyframes fadeUp {
+	from {
+		transform: translateY(8px);
+		opacity: 0;
+	}
+	to {
+		transform: translateY(0);
+		opacity: 1;
+	}
+}
