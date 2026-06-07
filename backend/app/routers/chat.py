@@ -4,12 +4,12 @@ import hashlib
 from collections import defaultdict
 from typing import Optional, List, Dict, Any, Tuple
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
 
@@ -53,86 +53,40 @@ class ChatResponse(BaseModel):
     sources: List[Source]
     debug_context: Optional[str] = None
 
-# ---------- Prompts (Fix 2) ----------
-FACTOID_PROMPT_TXT = (
-    "You must answer using only the provided CONTEXT.\n"
-    "If CONTEXT is non-empty, try to extract the most relevant span. "
-    "Only say 'I don't know.' if CONTEXT is literally empty.\n"
-    "Rules:\n"
-    "1) If a short phrase (<= 6 words) in CONTEXT answers, repeat it verbatim.\n"
-    "2) Always include a citation like [p=<page>].\n"
-)
+SYSTEM_PROMPT = """You are a helpful AI assistant — like ChatGPT, but with access to the user's uploaded documents.
 
-SUMMARY_PROMPT_TXT = (
-    "You are to write a concise, faithful summary using only the CONTEXT.\n"
-    "If CONTEXT is non-empty, you must produce a summary. "
-    "Only say 'I don't know.' if CONTEXT is literally empty.\n"
-    "Rules:\n"
-    "1) 3–5 sentences max, neutral tone.\n"
-    "2) Cite where appropriate using [p=<page>].\n"
-)
+How to behave:
+- Answer ANY question the user asks, whether it's about their documents or anything else.
+- When the CONTEXT is relevant to the question, use it to give a grounded, accurate answer.
+- When the CONTEXT is not relevant, just answer from your own knowledge — don't mention the documents at all.
+- Be conversational, concise, and natural. No bullet points unless the user asks for a list.
+- Never append page citations like [p=1] in your replies."""
 
-CROSS_PROMPT_TXT = (
-    "You are comparing and analyzing content from MULTIPLE documents using only the CONTEXT.\n"
-    "Rules:\n"
-    "1) If the question asks for similarities/differences, compare across documents.\n"
-    "2) Always cite filenames and page numbers, e.g. [filename, p=12].\n"
-    "3) Only say 'I don't know.' if CONTEXT is literally empty.\n"
-)
-# -------------------------------------
-
-factoid_template = ChatPromptTemplate.from_messages([
-    ("system", FACTOID_PROMPT_TXT),
+persona_template = ChatPromptTemplate.from_messages([
+    ("system", SYSTEM_PROMPT),
     (
         "human",
         "Conversation so far:\n{history}\n\n"
-        "Question: {question}\n\n"
-        "CONTEXT:\n{context}",
-    ),
-])
-
-summary_template = ChatPromptTemplate.from_messages([
-    ("system", SUMMARY_PROMPT_TXT),
-    (
-        "human",
-        "Conversation so far:\n{history}\n\n"
-        "Summarize or answer this request:\n\n{question}\n\n"
-        "CONTEXT:\n{context}",
-    ),
-])
-
-cross_template = ChatPromptTemplate.from_messages([
-    ("system", CROSS_PROMPT_TXT),
-    (
-        "human",
-        "Conversation so far:\n{history}\n\n"
-        "Question: {question}\n\n"
-        "CONTEXT (from multiple docs):\n{context}",
+        "CONTEXT from uploaded documents (use when relevant):\n{context}\n\n"
+        "{question}",
     ),
 ])
 
 suggest_template = ChatPromptTemplate.from_messages([
     (
         "system",
-        "You are an expert research assistant. Suggest follow-up questions that are"
-        " grounded in the provided context. Keep each suggestion short and specific."
-        " Return only plain lines, one suggestion per line, no numbering.",
+        "You are helping someone have a conversation with a person based on their document. "
+        "Suggest natural follow-up questions a human would ask in this conversation. "
+        "Keep each question short and conversational. "
+        "Return only plain lines, one question per line, no numbering.",
     ),
     (
         "human",
-        "User question: {question}\n\n"
+        "Last message: {question}\n\n"
         "CONTEXT:\n{context}\n\n"
         "Generate 4 follow-up questions.",
     ),
 ])
-
-def _classify(question: str) -> str:
-    q = question.lower().strip()
-    if q.startswith("summar") or "summary" in q or "summarise" in q:
-        return "summary"
-    if len(q) <= 80 or re.match(r"^(what|when|who|where|which|quote)\b", q):
-        return "factoid"
-    return "summary"
 
 def _get_store():
     embeddings = get_embeddings()
@@ -222,19 +176,7 @@ def _format_context(docs: List[Document], include_filename: bool = False) -> Tup
         srcs.append(Source(page=page1, page_content=text, metadata=md))
     return ("\n\n".join(blocks) if blocks else "(no context found)"), srcs
 
-# ---------- exact-quote helpers (Fix 3 relaxed) ----------
-def _looks_like_quote_question(q: str) -> bool:
-    q = q.lower()
-    return any(kw in q for kw in [
-        "what does", "what did", "exact words", "quote", "verbatim", "say?"
-    ])
-
-def _short_text(t: str) -> bool:
-    # allow a concise single sentence to be quoted
-    return len(t.strip()) <= 200 and "\n" not in t
-# --------------------------------------------------------
-
-# ---------- file auto-scope (Fix 1) ----------
+# ---------- file auto-scope ----------
 def _best_filename_by_grouping(docs: List[Document]) -> Optional[str]:
     """
     Group retrieved docs by filename and score each group by inverse-rank (1/(rank+1)).
@@ -252,11 +194,10 @@ def _best_filename_by_grouping(docs: List[Document]) -> Optional[str]:
 
 
 def _prepare_chat(req: ChatRequest) -> Dict[str, Any]:
-    kind = _classify(req.question)
-    k = req.k if req.k else (3 if kind == "factoid" else 8)
+    k = req.k if req.k else 6
 
     store = _get_store()
-    docs = _retrieval(store, req.question, kind, k)
+    docs = _retrieval(store, req.question, "summary", k)
 
     mode = (req.mode or "auto").lower().strip()
     if req.filename:
@@ -267,76 +208,43 @@ def _prepare_chat(req: ChatRequest) -> Dict[str, Any]:
             best = _best_filename_by_grouping(docs)
             if best:
                 docs = [d for d in docs if ((d.metadata or {}).get("filename") == best)]
-        elif mode == "cross":
-            pass
-        else:
-            best = _best_filename_by_grouping(docs)
-            if best:
-                docs = [d for d in docs if ((d.metadata or {}).get("filename") == best)]
 
     docs = _dedupe(docs)
     include_filename = (mode == "cross" and not req.filename)
     context, sources = _format_context(docs, include_filename=include_filename)
 
-    if mode == "cross" and not req.filename:
-        template = cross_template
-    else:
-        template = factoid_template if kind == "factoid" else summary_template
-
-    messages = template.format_messages(
+    messages = persona_template.format_messages(
         question=req.question,
         context=context,
         history=_history_to_text(req.history),
     )
 
     return {
-        "kind": kind,
         "context": context,
         "sources": sources,
         "messages": messages,
     }
 
 
-def _ensure_api_key() -> None:
-    if not settings.OPENAI_API_KEY:
+def _resolve_key(header_key: str | None) -> str:
+    key = (header_key or "").strip() or (settings.GROQ_API_KEY or "").strip()
+    if not key:
         raise HTTPException(
             status_code=400,
-            detail="OPENAI_API_KEY is missing. Add it to .env before using chat features.",
+            detail="GROQ_API_KEY is missing. Enter your free key from console.groq.com in the UI.",
         )
+    return key
 
 @router.post("", response_model=ChatResponse)
-async def chat(req: ChatRequest):
-    _ensure_api_key()
+async def chat(req: ChatRequest, x_groq_api_key: str | None = Header(default=None)):
+    key = _resolve_key(x_groq_api_key)
     prepared = _prepare_chat(req)
     context = prepared["context"]
     sources = prepared["sources"]
 
-    # exact-quote fallback
-    if sources and _looks_like_quote_question(req.question):
-        for s in sources:
-            if _short_text(s.page_content):
-                # if we showed filename in context, keep simple page-only cite here
-                return ChatResponse(
-                    answer=f"{s.page_content} [p={s.page}]",
-                    sources=sources,
-                    debug_context=context if req.return_debug else None,
-                )
-
-    if context == "(no context found)":
-        return ChatResponse(
-            answer="I don't know.",
-            sources=[],
-            debug_context=context if req.return_debug else None
-        )
-
-    llm = ChatOpenAI(
-        model=settings.CHAT_MODEL,
-        api_key=settings.OPENAI_API_KEY,
-        temperature=req.temperature,
-    )
-    messages = prepared["messages"]
+    llm = ChatGroq(model=settings.GROQ_MODEL, api_key=key, temperature=req.temperature)
     try:
-        result = llm.invoke(messages)
+        result = llm.invoke(prepared["messages"])
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}") from exc
 
@@ -344,8 +252,8 @@ async def chat(req: ChatRequest):
 
 
 @router.post("/stream")
-async def chat_stream(req: ChatRequest):
-    _ensure_api_key()
+async def chat_stream(req: ChatRequest, x_groq_api_key: str | None = Header(default=None)):
+    key = _resolve_key(x_groq_api_key)
     prepared = _prepare_chat(req)
     context = prepared["context"]
     sources = prepared["sources"]
@@ -357,22 +265,7 @@ async def chat_stream(req: ChatRequest):
             "debug_context": context if req.return_debug else None,
         })
 
-        if sources and _looks_like_quote_question(req.question):
-            for s in sources:
-                if _short_text(s.page_content):
-                    answer = f"{s.page_content} [p={s.page}]"
-                    yield _sse({"type": "done", "answer": answer})
-                    return
-
-        if context == "(no context found)":
-            yield _sse({"type": "done", "answer": "I don't know."})
-            return
-
-        llm = ChatOpenAI(
-            model=settings.CHAT_MODEL,
-            api_key=settings.OPENAI_API_KEY,
-            temperature=req.temperature,
-        )
+        llm = ChatGroq(model=settings.GROQ_MODEL, api_key=key, temperature=req.temperature)
         parts: List[str] = []
         try:
             for chunk in llm.stream(prepared["messages"]):
@@ -392,8 +285,8 @@ async def chat_stream(req: ChatRequest):
 
 
 @router.post("/suggest", response_model=SuggestResponse)
-async def suggest(req: SuggestRequest):
-    _ensure_api_key()
+async def suggest(req: SuggestRequest, x_groq_api_key: str | None = Header(default=None)):
+    key = _resolve_key(x_groq_api_key)
     prep_req = ChatRequest(
         question=req.question,
         k=req.k,
@@ -405,7 +298,7 @@ async def suggest(req: SuggestRequest):
     if context == "(no context found)":
         return SuggestResponse(suggestions=[])
 
-    llm = ChatOpenAI(model=settings.CHAT_MODEL, api_key=settings.OPENAI_API_KEY, temperature=0.2)
+    llm = ChatGroq(model=settings.GROQ_MODEL, api_key=key, temperature=0.2)
     msgs = suggest_template.format_messages(question=req.question, context=context)
     try:
         raw = llm.invoke(msgs).content or ""

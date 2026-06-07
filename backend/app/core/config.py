@@ -3,9 +3,12 @@ from typing import List
 import os
 
 class Settings(BaseSettings):
-    OPENAI_API_KEY: str | None = None
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
-    CHAT_MODEL: str = "gpt-4o-mini"
+    # Groq (free) — get a key at console.groq.com
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Local HuggingFace embeddings — no API key needed
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
 
     VECTOR_DB: str = "faiss"  # or "pinecone"
 

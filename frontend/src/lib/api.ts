@@ -1,6 +1,25 @@
 ﻿const rawBase = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8001";
 const API_BASE = String(rawBase).replace(/\/$/, "");
 
+export const KEY_STORAGE = "groq_api_key";
+
+export function getStoredKey(): string {
+  return localStorage.getItem(KEY_STORAGE) || "";
+}
+
+export function saveKey(key: string): void {
+  localStorage.setItem(KEY_STORAGE, key.trim());
+}
+
+export function clearKey(): void {
+  localStorage.removeItem(KEY_STORAGE);
+}
+
+function authHeaders(): Record<string, string> {
+  const key = getStoredKey();
+  return key ? { "X-Groq-API-Key": key } : {};
+}
+
 async function parseError(res: Response): Promise<string> {
   const fallback = `${res.status} ${res.statusText}`;
   try {
@@ -75,12 +94,17 @@ export type DocsStats = {
   documents: DocStat[];
 };
 
+export type DocBrief = {
+  summary: string;
+  questions: string[];
+};
+
 export async function uploadPdfs(
   files: File[]
-): Promise<{ added_documents: number; files: string[] }> {
+): Promise<{ added_documents: number; files: string[]; briefs: Record<string, DocBrief> }> {
   const fd = new FormData();
   files.forEach((f) => fd.append("files", f));
-  const res = await fetch(`${API_BASE}/api/ingest`, { method: "POST", body: fd });
+  const res = await fetch(`${API_BASE}/api/ingest`, { method: "POST", headers: authHeaders(), body: fd });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }
@@ -107,7 +131,7 @@ export async function ask(
 
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -130,7 +154,7 @@ export async function askStream(
 
   const res = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
 
@@ -163,7 +187,7 @@ export async function askStream(
 }
 
 export async function getDocsStats(): Promise<DocsStats> {
-  const res = await fetch(`${API_BASE}/api/docs`);
+  const res = await fetch(`${API_BASE}/api/docs`, { headers: authHeaders() });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }
@@ -171,6 +195,7 @@ export async function getDocsStats(): Promise<DocsStats> {
 export async function clearDocs(clearUploads = false): Promise<{ removed_index: boolean; removed_uploads: number }> {
   const res = await fetch(`${API_BASE}/api/docs?clear_uploads=${clearUploads ? "true" : "false"}`, {
     method: "DELETE",
+    headers: authHeaders(),
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
@@ -186,7 +211,7 @@ export async function suggestQuestions(
 
   const res = await fetch(`${API_BASE}/api/chat/suggest`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await parseError(res));

@@ -1,7 +1,7 @@
-﻿import { useEffect, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import Upload from "./components/Upload";
-import Chat from "./components/Chat";
-import { clearDocs, getDocsStats, type DocsStats } from "./lib/api";
+import Chat, { type ChatHandle } from "./components/Chat";
+import { clearDocs, getDocsStats, getStoredKey, saveKey, clearKey, type DocsStats, type DocBrief } from "./lib/api";
 
 export default function App() {
   const [files, setFiles] = useState<string[]>([]);
@@ -9,6 +9,10 @@ export default function App() {
   const [stats, setStats] = useState<DocsStats | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string>(getStoredKey);
+  const [keyInput, setKeyInput] = useState("");
+  const [briefs, setBriefs] = useState<Record<string, DocBrief>>({});
+  const chatRef = useRef<ChatHandle>(null);
 
   const loadStats = async () => {
     try {
@@ -43,6 +47,50 @@ export default function App() {
     }
   };
 
+  if (!apiKey) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4">
+        <div className="glass-panel rounded-3xl p-8 w-full max-w-md fade-up">
+          <p className="text-xs uppercase tracking-[0.25em] text-[var(--muted)] mb-1">Docling AI Workspace</p>
+          <h1 className="section-title text-2xl font-semibold mb-1">Welcome</h1>
+          <p className="text-sm text-[var(--muted)] mb-6">
+            Paste your free Groq API key to get started. It's saved locally in your browser — never sent anywhere except directly to the backend.
+          </p>
+          <p className="text-xs text-[var(--muted)] mb-1">
+            Get a free key at{" "}
+            <a href="https://console.groq.com" target="_blank" rel="noreferrer" className="underline">
+              console.groq.com
+            </a>
+          </p>
+          <input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && keyInput.trim()) {
+                saveKey(keyInput.trim());
+                setApiKey(keyInput.trim());
+              }
+            }}
+            placeholder="gsk_..."
+            className="w-full border border-[var(--line)] rounded-2xl px-4 py-3 bg-white/80 focus:outline-none focus:ring-2 focus:ring-[#9ed7bc] mb-3"
+            autoFocus
+          />
+          <button
+            onClick={() => {
+              if (!keyInput.trim()) return;
+              saveKey(keyInput.trim());
+              setApiKey(keyInput.trim());
+            }}
+            className="w-full py-3 rounded-2xl bg-[var(--brand)] text-white font-medium hover:brightness-95"
+          >
+            Save & Continue
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen px-4 py-6 md:px-8 md:py-8">
       <div className="max-w-7xl mx-auto fade-up">
@@ -55,9 +103,17 @@ export default function App() {
                 Upload PDFs, reason across documents, and chat with source-grounded context.
               </p>
             </div>
-            <div className="rounded-2xl px-4 py-3 bg-[var(--brand-soft)] border border-[var(--line)]">
-              <p className="text-xs text-[var(--muted)]">Model Flow</p>
-              <p className="font-medium text-sm mt-1">Ingest | Embed | Retrieve | Answer</p>
+            <div className="flex flex-col gap-2 items-end">
+              <div className="rounded-2xl px-4 py-3 bg-[var(--brand-soft)] border border-[var(--line)]">
+                <p className="text-xs text-[var(--muted)]">Model Flow</p>
+                <p className="font-medium text-sm mt-1">Ingest | Embed | Retrieve | Answer</p>
+              </div>
+              <button
+                onClick={() => { clearKey(); setApiKey(""); setKeyInput(""); }}
+                className="text-xs text-[var(--muted)] underline hover:text-black"
+              >
+                Change API key
+              </button>
             </div>
           </div>
         </header>
@@ -70,6 +126,7 @@ export default function App() {
               onIngest={async (ingested) => {
                 const names = ingested.files;
                 if (names.length > 0) setSelectedFile(names[names.length - 1]);
+                if (ingested.briefs) setBriefs((prev) => ({ ...prev, ...ingested.briefs }));
                 await loadStats();
               }}
             />
@@ -130,6 +187,43 @@ export default function App() {
             </div>
               {msg && <p className="text-xs text-[var(--muted)] mt-2">{msg}</p>}
             </section>
+
+            {/* Auto-brief cards */}
+            {Object.entries(briefs).map(([fname, brief]) =>
+              brief.summary ? (
+                <section key={fname} className="glass-panel rounded-3xl p-5 fade-up">
+                  <div className="flex items-start justify-between mb-2">
+                    <h2 className="section-title font-semibold text-sm truncate mr-2">{fname}</h2>
+                    <button
+                      onClick={() => setBriefs((prev) => { const n = { ...prev }; delete n[fname]; return n; })}
+                      className="text-xs text-[var(--muted)] hover:text-black shrink-0"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-xs text-[var(--muted)] leading-relaxed mb-3">{brief.summary}</p>
+                  {brief.questions.length > 0 && (
+                    <>
+                      <p className="text-xs font-medium mb-2">Ask about this doc:</p>
+                      <div className="flex flex-col gap-1.5">
+                        {brief.questions.map((q) => (
+                          <button
+                            key={q}
+                            onClick={() => {
+                              setSelectedFile(fname);
+                              chatRef.current?.send(q);
+                            }}
+                            className="text-left text-xs px-3 py-2 rounded-xl border border-[var(--line)] bg-white/70 hover:bg-[var(--brand-soft)] transition"
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </section>
+              ) : null
+            )}
           </aside>
 
           <main className="md:col-span-8">
@@ -150,7 +244,7 @@ export default function App() {
                 </select>
               </div>
             </div>
-            <Chat filename={selectedFile === "ALL" ? undefined : selectedFile} />
+            <Chat ref={chatRef} filename={selectedFile === "ALL" ? undefined : selectedFile} />
             </section>
           </main>
         </div>
