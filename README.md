@@ -141,6 +141,28 @@ The brief card appears in the sidebar. Click any question to scope the chat to t
 
 Interactive API docs: `http://127.0.0.1:8001/docs`
 
+## Deployment
+
+### Railway (full stack — recommended)
+
+Railway's monorepo support deploys both frontend and backend from the same repo using `railway.json`.
+
+1. Create a new project at [railway.app](https://railway.app) and connect this repo
+2. Railway auto-detects `railway.json` and spins up two services:
+   - **frontend** served at `/`
+   - **backend** served at `/_/backend`
+3. In the **frontend** service, add environment variable: `VITE_BACKEND_URL=/_/backend`
+4. In the **backend** service, add environment variable: `GROQ_API_KEY=gsk_...`
+5. Deploy — both services share the same domain
+
+### Frontend only → Vercel
+
+If you want to host just the frontend on Vercel (with backend hosted elsewhere):
+
+1. Import the repo at [vercel.com](https://vercel.com) — `vercel.json` is included
+2. Add environment variable: `VITE_BACKEND_URL=<your backend URL>`
+3. Deploy
+
 ## Troubleshooting
 
 - **`Address already in use`** on backend:

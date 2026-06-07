@@ -1,4 +1,5 @@
 ﻿const rawBase = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8001";
+// On Railway, both services are on the same domain — backend is at /_/backend
 const API_BASE = String(rawBase).replace(/\/$/, "");
 
 export const KEY_STORAGE = "groq_api_key";
