@@ -1,8 +1,8 @@
 ﻿import { useState } from "react";
-import { uploadPdfs } from "../lib/api";
+import { uploadPdfs, type DocBrief } from "../lib/api";
 
 type Props = {
-  onIngest?: (resp: { added_documents: number; files: string[] }) => void;
+  onIngest?: (resp: { added_documents: number; files: string[]; briefs: Record<string, DocBrief> }) => void;
 };
 
 export default function Upload({ onIngest }: Props) {

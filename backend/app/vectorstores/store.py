@@ -1,5 +1,5 @@
 ﻿from app.core.config import settings
-from app.vectorstores.faiss_store import FAISSWrapper, get_embeddings as get_openai_embeddings
+from app.vectorstores.faiss_store import FAISSWrapper, get_embeddings as get_hf_embeddings
 
 # Lazy import to avoid requiring pinecone unless used
 def get_store_wrapper(embeddings):
@@ -9,4 +9,4 @@ def get_store_wrapper(embeddings):
     return FAISSWrapper(embeddings)
 
 def get_embeddings():
-    return get_openai_embeddings(api_key=settings.OPENAI_API_KEY or "", model=settings.EMBEDDING_MODEL)
+    return get_hf_embeddings(model=settings.EMBEDDING_MODEL)

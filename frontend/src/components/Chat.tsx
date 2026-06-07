@@ -1,6 +1,8 @@
-﻿import { useMemo, useState } from "react";
+﻿import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
 import { ask, askStream, suggestQuestions } from "../lib/api";
 import type { ChatResponse, ChatTurn, StreamEvent } from "../lib/api";
+
+export type ChatHandle = { send: (question: string) => void };
 
 type Msg = {
   id: number;
@@ -10,7 +12,10 @@ type Msg = {
   debug?: string;
 };
 
-export default function Chat({ filename }: { filename?: string }) {
+let _id = 0;
+const nextId = () => ++_id;
+
+const Chat = forwardRef<ChatHandle, { filename?: string }>(function Chat({ filename }, ref) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,6 +23,8 @@ export default function Chat({ filename }: { filename?: string }) {
   const [streaming, setStreaming] = useState(true);
   const [showDebug, setShowDebug] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  useImperativeHandle(ref, () => ({ send: (q: string) => send(q) }));
 
   const history: ChatTurn[] = useMemo(
     () => messages.map((m) => ({ role: m.role, content: m.content })),
@@ -40,12 +47,12 @@ export default function Chat({ filename }: { filename?: string }) {
   const send = async (override?: string) => {
     const question = (override ?? q).trim();
     if (!question) return;
-    setMessages((m) => [...m, { id: Date.now(), role: "user", content: question }]);
+    setMessages((m) => [...m, { id: nextId(), role: "user", content: question }]);
     setQ("");
     setSuggestions([]);
     setBusy(true);
 
-    const assistantId = Date.now() + 1;
+    const assistantId = nextId();
     setMessages((m) => [...m, { id: assistantId, role: "assistant", content: "" }]);
 
     try {
@@ -227,4 +234,6 @@ export default function Chat({ filename }: { filename?: string }) {
       )}
     </div>
   );
-}
+});
+
+export default Chat;
