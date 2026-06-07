@@ -1,6 +1,6 @@
 ﻿import os
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 
 # Storage location: backend/storage/faiss/index
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -9,8 +9,8 @@ INDEX_PATH = os.path.join(STORAGE_DIR, "index")
 os.makedirs(STORAGE_DIR, exist_ok=True)
 
 def get_embeddings(model: str):
-    # Runs locally — no API key needed. Downloads ~90MB on first use.
-    return HuggingFaceEmbeddings(model_name=model)
+    # Runs locally via ONNX — no API key, no PyTorch. Downloads ~50MB on first use.
+    return FastEmbedEmbeddings(model_name=model)
 
 class FAISSWrapper:
     def __init__(self, embeddings):

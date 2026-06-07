@@ -7,8 +7,8 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str | None = None
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
-    # Local HuggingFace embeddings — no API key needed
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    # Local ONNX embeddings via fastembed — no API key, no PyTorch
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
 
     VECTOR_DB: str = "faiss"  # or "pinecone"
 

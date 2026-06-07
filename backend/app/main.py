@@ -9,7 +9,7 @@ from app.routers import docs as docs_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Pre-load the embedding model so the first upload doesn't hang.
-    print(f"Loading embedding model '{settings.EMBEDDING_MODEL}'... (downloads ~90MB on first run)")
+    print(f"Loading embedding model '{settings.EMBEDDING_MODEL}'... (downloads ~50MB on first run)")
     from app.vectorstores.store import get_embeddings
     get_embeddings()
     print("Embedding model ready.")

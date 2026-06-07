@@ -1,6 +1,5 @@
-﻿const rawBase = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8001";
-// On Railway, both services are on the same domain — backend is at /_/backend
-const API_BASE = String(rawBase).replace(/\/$/, "");
+﻿// Dev: uses VITE_BACKEND_URL or localhost. Production (Vercel): uses "" so calls are relative to same domain.
+const API_BASE = (import.meta.env.VITE_BACKEND_URL ?? (import.meta.env.PROD ? "" : "http://127.0.0.1:8001")).replace(/\/$/, "");
 
 export const KEY_STORAGE = "groq_api_key";
 
